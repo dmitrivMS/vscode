@@ -12,7 +12,7 @@ import { createUnknownAgentHostClientTelemetryContext, type IAgentHostClientTele
 import { AgentHostClientType } from '../common/agentHostClientInfo.js';
 import { canRefineContributor, toolSourceKindFromContributor } from './agentHostToolCallTracker.js';
 import { SessionInputRequestKind } from '../common/state/protocol/state.js';
-import type { ToolCallContributor } from '../common/state/sessionState.js';
+import type { ITurnTokenTotal, ToolCallContributor } from '../common/state/sessionState.js';
 import type { AgentHostModelTelemetryKind, AgentHostTelemetryReporter, AgentHostTurnFailureStage, AgentHostTurnHangReason, AgentHostTurnResult, IAgentHostTurnFailure } from './agentHostTelemetryReporter.js';
 
 /**
@@ -54,6 +54,7 @@ interface ITurnTiming {
 	readonly provider: string;
 	readonly session: string;
 	readonly turnId: string;
+	readonly parentTurnId: string | undefined;
 	model: string | undefined;
 	modelTelemetryKind: AgentHostModelTelemetryKind | undefined;
 	readonly modelSelectionKind: 'default' | 'auto' | 'explicit';
@@ -90,6 +91,10 @@ interface ITurnTiming {
 
 interface ITurnUsage {
 	billedNanoAiu?: number;
+	directPromptTokenCount?: number;
+	directPromptCacheTokenCount?: number;
+	directCompletionTokenCount?: number;
+	directBilledNanoAiu?: number;
 }
 
 /**
@@ -143,13 +148,14 @@ export class AgentHostTurnTracker extends Disposable {
 		}));
 	}
 
-	turnStarted(provider: string, session: string, turnId: string, model: string | undefined, modelTelemetryKind: AgentHostModelTelemetryKind | undefined, modelSelectionKind: 'default' | 'auto' | 'explicit', permissionLevel: string | undefined, interactionMode: SessionMode | undefined, clientContext = createUnknownAgentHostClientTelemetryContext(AgentHostClientType.Unknown)): void {
+	turnStarted(provider: string, session: string, turnId: string, model: string | undefined, modelTelemetryKind: AgentHostModelTelemetryKind | undefined, modelSelectionKind: 'default' | 'auto' | 'explicit', permissionLevel: string | undefined, interactionMode: SessionMode | undefined, clientContext = createUnknownAgentHostClientTelemetryContext(AgentHostClientType.Unknown), parentTurnId?: string): void {
 		const key = this._key(session, turnId);
 		this._turnTimings.set(key, {
 			stopWatch: StopWatch.create(false),
 			provider,
 			session,
 			turnId,
+			parentTurnId,
 			model,
 			modelTelemetryKind,
 			modelSelectionKind,
@@ -315,6 +321,21 @@ export class AgentHostTurnTracker extends Disposable {
 		}
 	}
 
+	updateDirectUsage(session: string, turnId: string, tokenTotals: readonly ITurnTokenTotal[] | undefined, billedNanoAiu: number | undefined): void {
+		const usage = this._turnUsages.get(this._key(session, turnId));
+		if (!usage) {
+			return;
+		}
+		if (tokenTotals) {
+			usage.directPromptTokenCount = sumTokenCounts(tokenTotals, total => total.inputTokens);
+			usage.directPromptCacheTokenCount = sumTokenCounts(tokenTotals, total => total.cachedTokens);
+			usage.directCompletionTokenCount = sumTokenCounts(tokenTotals, total => total.outputTokens);
+		}
+		if (typeof billedNanoAiu === 'number' && Number.isFinite(billedNanoAiu) && billedNanoAiu >= 0) {
+			usage.directBilledNanoAiu = billedNanoAiu;
+		}
+	}
+
 	modelCallCompleted(session: string, turnId: string, modelCallId: string): void {
 		this._turnTimings.get(this._key(session, turnId))?.completedModelCallIds.add(modelCallId);
 	}
@@ -342,6 +363,7 @@ export class AgentHostTurnTracker extends Disposable {
 			provider: timing.provider,
 			session: timing.session,
 			turnId,
+			parentTurnId: timing.parentTurnId,
 			timeToFirstProgress: timing.firstProgressMs,
 			totalTime: timing.stopWatch.elapsed(),
 			result,
@@ -354,6 +376,10 @@ export class AgentHostTurnTracker extends Disposable {
 			isMultiRoot: workspace?.isMultiRoot ?? false,
 			folderCount: workspace?.folderCount ?? 0,
 			billedNanoAiu: usage?.billedNanoAiu,
+			directPromptTokenCount: usage?.directPromptTokenCount,
+			directPromptCacheTokenCount: usage?.directPromptCacheTokenCount,
+			directCompletionTokenCount: usage?.directCompletionTokenCount,
+			directBilledNanoAiu: usage?.directBilledNanoAiu,
 			modelCallCount: timing.completedModelCallIds.size,
 		});
 
@@ -526,4 +552,11 @@ export class AgentHostTurnTracker extends Disposable {
 	private _key(session: string, turnId: string): string {
 		return `${session}\0${turnId}`;
 	}
+}
+
+function sumTokenCounts(totals: readonly ITurnTokenTotal[], getCount: (total: ITurnTokenTotal) => number): number {
+	return totals.reduce((sum, total) => {
+		const count = getCount(total);
+		return sum + (Number.isFinite(count) && count >= 0 ? count : 0);
+	}, 0);
 }
