@@ -652,6 +652,7 @@ export class CopilotAgentSession extends Disposable {
 	private readonly _parentToolCallIdsByAgentId = new Map<string, string>();
 	/** Maps SDK root-agent turn ids to their owning host protocol turn ids. */
 	private readonly _hostTurnIdsBySdkTurnId = new Map<string, string>();
+	private _activeRootSdkTurnId: string | undefined;
 	private readonly _activeSubagentAgentIds = new Set<string>();
 	private readonly _unroutableSubagentToolCallIds = new Set<string>();
 	private readonly _autoApprovals = new Map<string, PermissionAutoApproval | null>();
@@ -1113,6 +1114,9 @@ export class CopilotAgentSession extends Disposable {
 		if (this._currentTurn) {
 			this._currentTurn.messageCharLen = steering.message.text.length;
 			this._currentTurn.markRunning();
+		}
+		if (this._activeRootSdkTurnId) {
+			this._hostTurnIdsBySdkTurnId.set(this._activeRootSdkTurnId, newTurnId);
 		}
 		return newTurnId;
 	}
@@ -5505,7 +5509,9 @@ export class CopilotAgentSession extends Disposable {
 		this._register(wrapper.onTurnStart(e => {
 			this._currentTurn?.markRunning();
 			this._logService.trace(`[Copilot:${sessionId}] Turn started: ${e.data.turnId}`);
+			this._resumeSubagentForEvent(e);
 			if (!e.agentId) {
+				this._activeRootSdkTurnId = e.data.turnId;
 				if (this._currentTurn) {
 					this._hostTurnIdsBySdkTurnId.set(e.data.turnId, this._currentTurn.id);
 				}
@@ -5548,6 +5554,9 @@ export class CopilotAgentSession extends Disposable {
 
 		this._register(wrapper.onTurnEnd(e => {
 			this._logService.trace(`[Copilot:${sessionId}] Turn ended: ${e.data.turnId}`);
+			if (!e.agentId && this._activeRootSdkTurnId === e.data.turnId) {
+				this._activeRootSdkTurnId = undefined;
+			}
 		}));
 
 		this._register(wrapper.onAbort(e => {
