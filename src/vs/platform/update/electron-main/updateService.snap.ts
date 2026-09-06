@@ -11,8 +11,9 @@ import * as path from '../../../base/common/path.js';
 import { IEnvironmentMainService } from '../../environment/electron-main/environmentMainService.js';
 import { ILifecycleMainService } from '../../lifecycle/electron-main/lifecycleMainService.js';
 import { ILogService } from '../../log/common/log.js';
-import { AvailableForDownload, IUpdateService, State, StateType, UpdateType } from '../common/update.js';
+import { AvailableForDownload, IUpdateService, IUpdateStatus, State, StateType, UpdateType } from '../common/update.js';
 import { IMeteredConnectionService } from '../../meteredConnection/common/meteredConnection.js';
+import { IProductService } from '../../product/common/productService.js';
 
 abstract class AbstractUpdateService implements IUpdateService {
 
@@ -150,6 +151,7 @@ abstract class AbstractUpdateService implements IUpdateService {
 	}
 
 	abstract isLatestVersion(): Promise<boolean | undefined>;
+	abstract getStatus(): Promise<IUpdateStatus>;
 
 	async _applySpecificUpdate(packagePath: string): Promise<void> {
 		// noop
@@ -164,9 +166,10 @@ export class SnapUpdateService extends AbstractUpdateService {
 		private snap: string,
 		private snapRevision: string,
 		@ILifecycleMainService lifecycleMainService: ILifecycleMainService,
-		@IEnvironmentMainService environmentMainService: IEnvironmentMainService,
+		@IEnvironmentMainService private readonly environmentMainService: IEnvironmentMainService,
 		@ILogService logService: ILogService,
 		@IMeteredConnectionService meteredConnectionService: IMeteredConnectionService,
+		@IProductService private readonly productService: IProductService,
 	) {
 		super(lifecycleMainService, environmentMainService, logService, meteredConnectionService);
 
@@ -218,5 +221,35 @@ export class SnapUpdateService extends AbstractUpdateService {
 			this.logService.error('update#checkForSnapUpdate(): Could not get realpath of application.');
 			return undefined;
 		});
+	}
+
+	async getStatus(): Promise<IUpdateStatus> {
+		const disabledReason = !this.environmentMainService.isBuilt ? 'notBuilt' : this.environmentMainService.disableUpdates ? 'disabledByEnvironment' : null;
+		if (disabledReason) {
+			return {
+				currentVersion: this.productService.version,
+				quality: this.productService.quality ?? 'unknown',
+				platform: `linux-${process.arch}-snap`,
+				installType: 'snap',
+				state: StateType.Disabled,
+				updateAvailable: null,
+				availableVersion: null,
+				canInstall: false,
+				disabledReason
+			};
+		}
+
+		const updateAvailable = await this.isUpdateAvailable();
+		return {
+			currentVersion: this.productService.version,
+			quality: this.productService.quality ?? 'unknown',
+			platform: `linux-${process.arch}-snap`,
+			installType: 'snap',
+			state: this.state.type,
+			updateAvailable,
+			availableVersion: null,
+			canInstall: false,
+			disabledReason: null
+		};
 	}
 }

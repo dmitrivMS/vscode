@@ -6,7 +6,7 @@
 import { Emitter, Event } from '../../../base/common/event.js';
 import { DisposableStore } from '../../../base/common/lifecycle.js';
 import { IChannel, IServerChannel } from '../../../base/parts/ipc/common/ipc.js';
-import { IUpdateService, State } from './update.js';
+import { IUpdateService, IUpdateStatus, State } from './update.js';
 
 export class UpdateChannel implements IServerChannel {
 
@@ -22,6 +22,7 @@ export class UpdateChannel implements IServerChannel {
 
 	call(_: unknown, command: string, arg?: any): Promise<any> {
 		switch (command) {
+			case 'getStatus': return this.service.getStatus();
 			case 'checkForUpdates': return this.service.checkForUpdates(arg);
 			case 'downloadUpdate': return this.service.downloadUpdate(arg);
 			case 'applyUpdate': return this.service.applyUpdate();
@@ -54,6 +55,10 @@ export class UpdateChannelClient implements IUpdateService {
 	constructor(private readonly channel: IChannel) {
 		this.disposables.add(this.channel.listen<State>('onStateChange')(state => this.state = state));
 		this.channel.call<State>('_getInitialState').then(state => this.state = state);
+	}
+
+	getStatus(): Promise<IUpdateStatus> {
+		return this.channel.call('getStatus');
 	}
 
 	checkForUpdates(explicit: boolean): Promise<void> {
