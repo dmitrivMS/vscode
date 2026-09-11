@@ -206,6 +206,10 @@ export class Win32UpdateService extends AbstractUpdateService implements IRelaun
 	}
 
 	protected buildUpdateFeedUrl(quality: string, commit: string, options?: IUpdateURLOptions): string | undefined {
+		return createUpdateURL(this.productService.updateUrl!, this.getUpdatePlatform(), quality, commit, options);
+	}
+
+	protected override getUpdatePlatform(): string {
 		let platform = `win32-${process.arch}`;
 
 		if (this.getUpdateType() === UpdateType.Archive) {
@@ -214,7 +218,25 @@ export class Win32UpdateService extends AbstractUpdateService implements IRelaun
 			platform += '-user';
 		}
 
-		return createUpdateURL(this.productService.updateUrl!, platform, quality, commit, options);
+		return platform;
+	}
+
+	protected override getUpdateInstallType(): string {
+		if (getUpdateType() === UpdateType.Archive) {
+			return 'windows-archive';
+		}
+		return this.productService.target === 'user' ? 'windows-user-setup' : 'windows-system-setup';
+	}
+
+	protected override canInstallUpdate(): boolean {
+		return getUpdateType() === UpdateType.Setup;
+	}
+
+	protected override async getPlatformDisabledReason(): Promise<string | null> {
+		if (getUpdateType() === UpdateType.Setup && this.productService.target === 'user' && await this.nativeHostMainService.isAdmin(undefined)) {
+			return 'runningAsAdmin';
+		}
+		return null;
 	}
 
 	protected doCheckForUpdates(explicit: boolean, pendingCommit?: string): void {

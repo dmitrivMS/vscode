@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { createDecorator } from '../../instantiation/common/instantiation.js';
+import { IUpdateStatus } from '../../update/common/update.js';
 
 export const ICliControlMainService = createDecorator<ICliControlMainService>('cliControlMainService');
 
@@ -20,17 +21,8 @@ export interface IUpdateCliRequest {
 	readonly force?: boolean;
 }
 
-export interface IUpdateCliStatus {
+export interface IUpdateCliStatus extends IUpdateStatus {
 	readonly schemaVersion: 1;
-	readonly currentVersion: string;
-	readonly quality: string;
-	readonly platform: string;
-	readonly installType: string;
-	readonly state: string;
-	readonly updateAvailable: boolean | null;
-	readonly availableVersion: string | null;
-	readonly canInstall: boolean;
-	readonly disabledReason: string | null;
 }
 
 export interface ICliCommandResult {

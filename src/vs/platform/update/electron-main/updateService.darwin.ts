@@ -94,8 +94,8 @@ export class DarwinUpdateService extends AbstractUpdateService implements IRelau
 	}
 
 	protected buildUpdateFeedUrl(quality: string, commit: string, options?: IUpdateURLOptions): string | undefined {
-		const assetID = this.productService.darwinUniversalAssetId ?? (process.arch === 'x64' ? 'darwin' : 'darwin-arm64');
-		const url = createUpdateURL(this.productService.updateUrl!, assetID, quality, commit, options);
+		const assetID = this.getUpdatePlatform();
+		const url = this.buildUpdateMetadataUrl(quality, commit, options);
 		const headers = getUpdateRequestHeaders(this.productService.version);
 		try {
 			this.logService.trace('update#buildUpdateFeedUrl - setting feed URL for Electron autoUpdater', { url, assetID, quality, commit, headers });
@@ -106,6 +106,22 @@ export class DarwinUpdateService extends AbstractUpdateService implements IRelau
 			return undefined;
 		}
 		return url;
+	}
+
+	protected override buildUpdateMetadataUrl(quality: string, commit: string, options?: IUpdateURLOptions): string {
+		return createUpdateURL(this.productService.updateUrl!, this.getUpdatePlatform(), quality, commit, options);
+	}
+
+	protected override getUpdatePlatform(): string {
+		return this.productService.darwinUniversalAssetId ?? (process.arch === 'x64' ? 'darwin' : 'darwin-arm64');
+	}
+
+	protected override getUpdateInstallType(): string {
+		return 'macos-application';
+	}
+
+	protected override canInstallUpdate(): boolean {
+		return true;
 	}
 
 	protected doCheckForUpdates(explicit: boolean, pendingCommit?: string): void {

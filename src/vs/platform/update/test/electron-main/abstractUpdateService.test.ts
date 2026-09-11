@@ -6,6 +6,7 @@
 import assert from 'assert';
 import * as sinon from 'sinon';
 import { DeferredPromise, timeout } from '../../../../base/common/async.js';
+import { bufferToStream, VSBuffer } from '../../../../base/common/buffer.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
@@ -144,7 +145,7 @@ suite('AbstractUpdateService', () => {
 	let requestCount: number;
 	let meteredConnectionService: TestMeteredConnectionService;
 
-	function createService(mode: string, options?: { isBuilt?: boolean; disableUpdates?: boolean; updateUrl?: string; isConnectionMetered?: boolean; meteredConnectionInitialization?: Promise<void>; postInitializeGate?: Promise<void>; supportsUpdateOverwrite?: boolean }): TestUpdateService {
+	function createService(mode: string, options?: { isBuilt?: boolean; disableUpdates?: boolean; updateUrl?: string; isConnectionMetered?: boolean; meteredConnectionInitialization?: Promise<void>; postInitializeGate?: Promise<void>; supportsUpdateOverwrite?: boolean; updateResponse?: IUpdate | null; requestError?: Error }): TestUpdateService {
 		configurationService = new PolicyTestConfigurationService();
 		configurationService.setUserConfiguration('update.mode', mode);
 		requestCount = 0;
@@ -164,7 +165,13 @@ suite('AbstractUpdateService', () => {
 		const requestService = {
 			request: () => {
 				requestCount++;
-				return Promise.reject(new Error('not expected'));
+				if (options?.requestError) {
+					return Promise.reject(options.requestError);
+				}
+				return Promise.resolve({
+					res: { statusCode: options?.updateResponse ? 200 : 204, headers: {} },
+					stream: bufferToStream(VSBuffer.fromString(options?.updateResponse ? JSON.stringify(options.updateResponse) : ''))
+				});
 			}
 		} as unknown as IRequestService;
 
@@ -233,6 +240,71 @@ suite('AbstractUpdateService', () => {
 		await service.whenInitialized;
 
 		assert.strictEqual(service.state.type, StateType.Idle);
+	});
+
+	test('status reports an available version without changing update state', async () => {
+		const service = createService('default', {
+			updateResponse: {
+				version: 'def456',
+				productVersion: '1.1.0',
+				url: 'https://update.example/download'
+			}
+		});
+		await service.whenInitialized;
+		service.forceState(State.CheckingForUpdates(true));
+
+		const status = await service.getStatus();
+
+		assert.deepStrictEqual({
+			status,
+			state: service.state,
+			requestCount
+		}, {
+			status: {
+				currentVersion: '1.0.0',
+				quality: 'stable',
+				platform: `${process.platform}-${process.arch}`,
+				installType: 'archive',
+				state: StateType.CheckingForUpdates,
+				updateAvailable: true,
+				availableVersion: '1.1.0',
+				canInstall: false,
+				disabledReason: null
+			},
+			state: { type: StateType.CheckingForUpdates, explicit: true },
+			requestCount: 1
+		});
+	});
+
+	test('status reports policy disablement without requesting metadata', async () => {
+		const service = createService('default');
+		await service.whenInitialized;
+		await setPolicy(service, 'none');
+
+		const status = await service.getStatus();
+
+		assert.deepStrictEqual({
+			state: status.state,
+			updateAvailable: status.updateAvailable,
+			availableVersion: status.availableVersion,
+			canInstall: status.canInstall,
+			disabledReason: status.disabledReason,
+			requestCount
+		}, {
+			state: StateType.Disabled,
+			updateAvailable: null,
+			availableVersion: null,
+			canInstall: false,
+			disabledReason: 'policy',
+			requestCount: 0
+		});
+	});
+
+	test('status propagates metadata request failures', async () => {
+		const service = createService('default', { requestError: new Error('network unavailable') });
+		await service.whenInitialized;
+
+		await assert.rejects(service.getStatus(), /network unavailable/);
 	});
 
 	test('policy forces updates off even when the user setting keeps them enabled', async () => {

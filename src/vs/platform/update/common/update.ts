@@ -15,6 +15,18 @@ export interface IUpdate {
 	sha256hash?: string;
 }
 
+export interface IUpdateStatus {
+	readonly currentVersion: string;
+	readonly quality: string;
+	readonly platform: string;
+	readonly installType: string;
+	readonly state: string;
+	readonly updateAvailable: boolean | null;
+	readonly availableVersion: string | null;
+	readonly canInstall: boolean;
+	readonly disabledReason: string | null;
+}
+
 /**
  * Updates are run as a state machine:
  *
@@ -113,6 +125,7 @@ export interface IUpdateService {
 	readonly onStateChange: Event<State>;
 	readonly state: State;
 
+	getStatus(): Promise<IUpdateStatus>;
 	checkForUpdates(explicit: boolean): Promise<void>;
 	downloadUpdate(explicit: boolean): Promise<void>;
 	applyUpdate(): Promise<void>;

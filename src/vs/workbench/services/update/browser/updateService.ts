@@ -4,11 +4,12 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { Event, Emitter } from '../../../../base/common/event.js';
-import { IUpdateService, State, UpdateType } from '../../../../platform/update/common/update.js';
+import { IUpdateService, IUpdateStatus, State, StateType, UpdateType } from '../../../../platform/update/common/update.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { IBrowserWorkbenchEnvironmentService } from '../../environment/browser/environmentService.js';
 import { IHostService } from '../../host/browser/host.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
+import { IProductService } from '../../../../platform/product/common/productService.js';
 
 export interface IUpdate {
 	version: string;
@@ -40,11 +41,27 @@ export class BrowserUpdateService extends Disposable implements IUpdateService {
 
 	constructor(
 		@IBrowserWorkbenchEnvironmentService private readonly environmentService: IBrowserWorkbenchEnvironmentService,
-		@IHostService private readonly hostService: IHostService
+		@IHostService private readonly hostService: IHostService,
+		@IProductService private readonly productService: IProductService,
 	) {
 		super();
 
 		this.checkForUpdates(false);
+	}
+
+	async getStatus(): Promise<IUpdateStatus> {
+		const availableVersion = this.state.type === StateType.Ready ? this.state.update.productVersion ?? this.state.update.version : null;
+		return {
+			currentVersion: this.productService.version,
+			quality: this.productService.quality ?? 'unknown',
+			platform: 'web',
+			installType: 'web',
+			state: this.state.type,
+			updateAvailable: availableVersion ? true : this.state.type === StateType.Idle ? false : null,
+			availableVersion,
+			canInstall: false,
+			disabledReason: this.environmentService.options?.updateProvider ? null : 'missingConfiguration'
+		};
 	}
 
 	async isLatestVersion(): Promise<boolean | undefined> {

@@ -17,11 +17,11 @@ import { IEnvironmentMainService } from '../../environment/electron-main/environ
 import { ILifecycleMainService, LifecycleMainPhase } from '../../lifecycle/electron-main/lifecycleMainService.js';
 import { ILogService } from '../../log/common/log.js';
 import { IProductService } from '../../product/common/productService.js';
-import { IRequestService } from '../../request/common/request.js';
+import { asJson, IRequestService } from '../../request/common/request.js';
 import { StorageScope, StorageTarget } from '../../storage/common/storage.js';
 import { IApplicationStorageMainService } from '../../storage/electron-main/storageMainService.js';
 import { ITelemetryService } from '../../telemetry/common/telemetry.js';
-import { AvailableForDownload, DisablementReason, IUpdate, IUpdateService, State, StateType, UpdateType } from '../common/update.js';
+import { AvailableForDownload, DisablementReason, IUpdate, IUpdateService, IUpdateStatus, State, StateType, UpdateType } from '../common/update.js';
 
 const LAST_KNOWN_VERSION_STORAGE_KEY = 'abstractUpdateService/lastKnownVersion';
 
@@ -446,6 +446,94 @@ export abstract class AbstractUpdateService extends Disposable implements IUpdat
 		return updateMode === 'none' ? undefined : this.productService.quality;
 	}
 
+	async getStatus(): Promise<IUpdateStatus> {
+		const quality = this.productService.quality ?? 'unknown';
+		const disabledReason = this.getStatusDisabledReason() ?? await this.getPlatformDisabledReason();
+		const baseStatus = {
+			currentVersion: this.productService.version,
+			quality,
+			platform: this.getUpdatePlatform(),
+			installType: this.getUpdateInstallType(),
+			state: disabledReason ? StateType.Disabled : this.state.type === StateType.Uninitialized ? StateType.Idle : this.state.type,
+			canInstall: !disabledReason && this.canInstallUpdate(),
+			disabledReason
+		};
+
+		if (disabledReason) {
+			return {
+				...baseStatus,
+				updateAvailable: null,
+				availableVersion: null
+			};
+		}
+
+		const url = this.buildUpdateMetadataUrl(quality, this.productService.commit!, { internalOrg: this.getInternalOrg() });
+		if (!url) {
+			return {
+				...baseStatus,
+				updateAvailable: null,
+				availableVersion: null,
+				canInstall: false,
+				disabledReason: 'invalidConfiguration'
+			};
+		}
+
+		const headers = getUpdateRequestHeaders(this.productService.version);
+		this.logService.trace('update#getStatus - checking update server', { url, headers });
+		const context = await this.requestService.request({ url, headers, callSite: 'updateService.getStatus' }, CancellationToken.None);
+		const update = await asJson<IUpdate>(context);
+
+		if (!update) {
+			return {
+				...baseStatus,
+				updateAvailable: false,
+				availableVersion: null
+			};
+		}
+
+		if (!update.version || !update.productVersion) {
+			throw new Error('Update metadata response is missing version information.');
+		}
+
+		return {
+			...baseStatus,
+			updateAvailable: true,
+			availableVersion: update.productVersion
+		};
+	}
+
+	private getStatusDisabledReason(): string | null {
+		if (!this.environmentMainService.isBuilt) {
+			return 'notBuilt';
+		}
+		if (this.environmentMainService.disableUpdates) {
+			return 'disabledByEnvironment';
+		}
+		if (!this.productService.updateUrl || !this.productService.commit || !this.productService.quality) {
+			return 'missingConfiguration';
+		}
+
+		const updateMode = this.configurationService.getValue<'none' | 'manual' | 'start' | 'default'>('update.mode');
+		if (updateMode === 'none') {
+			const inspection = this.configurationService.inspect<'none' | 'manual' | 'start' | 'default'>('update.mode');
+			return inspection.policyValue === 'none' ? 'policy' : 'manuallyDisabled';
+		}
+
+		return this.state.type === StateType.Disabled ? this.getDisablementReasonLabel(this.state.reason) : null;
+	}
+
+	private getDisablementReasonLabel(reason: DisablementReason): string {
+		switch (reason) {
+			case DisablementReason.NotBuilt: return 'notBuilt';
+			case DisablementReason.DisabledByEnvironment: return 'disabledByEnvironment';
+			case DisablementReason.ManuallyDisabled: return 'manuallyDisabled';
+			case DisablementReason.Policy: return 'policy';
+			case DisablementReason.MissingConfiguration: return 'missingConfiguration';
+			case DisablementReason.InvalidConfiguration: return 'invalidConfiguration';
+			case DisablementReason.RunningAsAdmin: return 'runningAsAdmin';
+		}
+	}
+
 	private scheduleCheckForUpdates(delay = 60 * 60 * 1000, repeat = true): void {
 		const promise: CancelablePromise<void> = timeout(delay);
 		this.scheduler.value = toDisposable(() => promise.cancel());
@@ -699,6 +787,26 @@ export abstract class AbstractUpdateService extends Disposable implements IUpdat
 
 	protected getUpdateType(): UpdateType {
 		return UpdateType.Archive;
+	}
+
+	protected getUpdatePlatform(): string {
+		return `${process.platform}-${process.arch}`;
+	}
+
+	protected getUpdateInstallType(): string {
+		return 'archive';
+	}
+
+	protected canInstallUpdate(): boolean {
+		return false;
+	}
+
+	protected getPlatformDisabledReason(): Promise<string | null> {
+		return Promise.resolve(null);
+	}
+
+	protected buildUpdateMetadataUrl(quality: string, commit: string, options?: IUpdateURLOptions): string | undefined {
+		return this.buildUpdateFeedUrl(quality, commit, options);
 	}
 
 	protected doQuitAndInstall(): void {
