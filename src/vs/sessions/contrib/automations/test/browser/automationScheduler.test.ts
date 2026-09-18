@@ -12,6 +12,7 @@ import { URI } from '../../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { NullLogService } from '../../../../../platform/log/common/log.js';
 import { InMemoryStorageService } from '../../../../../platform/storage/common/storage.js';
+import { NullTelemetryService } from '../../../../../platform/telemetry/common/telemetryUtils.js';
 import { IAutomationLeaderElection } from '../../browser/automationLeaderElection.js';
 import { IAutomationRunDispatch, IAutomationRunner, IAutomationRunOperation } from '../../../../../workbench/contrib/chat/common/automations/automationRunner.js';
 import { AutomationSchedulerCore, CRASH_RECOVERY_REASON, RUN_TIMEOUT_REASON_PREFIX } from '../../browser/automationScheduler.js';
@@ -155,7 +156,7 @@ suite('AutomationSchedulerCore', () => {
 	test('does not dispatch automations whose provider owns scheduling', async () => {
 		const storage = teardown.add(new InMemoryStorageService());
 		const log = new NullLogService();
-		const service = teardown.add(new HostScheduledAutomationService(storage, log, new TestAutomationStorageService(storage)));
+		const service = teardown.add(new HostScheduledAutomationService(storage, log, NullTelemetryService, new TestAutomationStorageService(storage)));
 		const runner = new RecordingRunner(service);
 		const leader = new FakeLeaderElection(false);
 		let now = T0;
@@ -367,7 +368,7 @@ suite('AutomationSchedulerCore', () => {
 	test('leadership transitions activate and deactivate stale-run recovery', async () => {
 		const storage = teardown.add(new InMemoryStorageService());
 		const log = new NullLogService();
-		const service = teardown.add(new RecordingRecoveryAutomationService(storage, log, new TestAutomationStorageService(storage)));
+		const service = teardown.add(new RecordingRecoveryAutomationService(storage, log, NullTelemetryService, new TestAutomationStorageService(storage)));
 		const leader = new FakeLeaderElection(false);
 		const core = teardown.add(new AutomationSchedulerCore(service, new RecordingRunner(service), storage, log, {
 			leaderElection: leader,

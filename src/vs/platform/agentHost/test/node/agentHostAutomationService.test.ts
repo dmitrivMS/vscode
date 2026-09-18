@@ -163,6 +163,7 @@ suite('AgentHostAutomationService', () => {
 			name: 'automation.created',
 			data: {
 				automationId: hashAutomationTelemetryId('ahp-automation:/review-changes'),
+				executionAuthority: 'agentHost',
 				provider: 'copilotcli',
 				model: new TelemetryTrustedValue('catalog-model'),
 				modelSelectionKind: 'explicit',
@@ -329,6 +330,7 @@ suite('AgentHostAutomationService', () => {
 		assert.deepStrictEqual(telemetry.events.filter(event => event.name !== 'automation.created').map(event => event.data), [{
 			automationId: hashAutomationTelemetryId('ahp-automation:/review-changes'),
 			runId: AgentSession.id(run.resource),
+			executionAuthority: 'agentHost',
 			trigger: 'manual',
 			runCreatedAt: stateManager.getAutomationRunState(run.resource)?.lifecycle.createdAt,
 			provider: 'copilotcli',
@@ -375,7 +377,7 @@ suite('AgentHostAutomationService', () => {
 			runSession: starts.map(event => ({ provider: event.data.provider, agentSessionId: event.data.agentSessionId })),
 			messageSession: messages.map(event => ({ provider: event.data.provider, agentSessionId: event.data.agentSessionId })),
 			origins: messages.map(event => event.data.messageOriginKind),
-			legacyFields: starts.flatMap(event => Object.keys(event.data).filter(key => key === 'executionAuthority' || key === 'agentsWindowSessionId' || key === 'sessionProvider')),
+			legacyFields: starts.flatMap(event => Object.keys(event.data).filter(key => key === 'agentsWindowSessionId' || key === 'sessionProvider')),
 		}, {
 			events: ['automation.created', 'automation.runCreated', 'automation.runStarted', 'agentHost.userMessageSent'],
 			savedProviders: ['default', 'default'],
@@ -401,6 +403,7 @@ suite('AgentHostAutomationService', () => {
 			name: 'automation.runCompleted',
 			automationId: hashAutomationTelemetryId('ahp-automation:/review-changes'),
 			runId: AgentSession.id(run.resource),
+			executionAuthority: 'agentHost',
 			trigger: 'manual',
 			runCreatedAt: stateManager.getAutomationRunState(run.resource)?.lifecycle.createdAt,
 			provider: 'default',
@@ -913,6 +916,7 @@ suite('AgentHostAutomationService', () => {
 			assert.deepStrictEqual(telemetry.events.filter(event => event.name === 'automation.runCompleted').map(event => event.data), [{
 				automationId: hashAutomationTelemetryId('ahp-automation:/review-changes'),
 				runId: AgentSession.id(run.resource),
+				executionAuthority: 'agentHost',
 				trigger: 'manual',
 				runCreatedAt: new Date(Date.UTC(2026, 0, 1)).toISOString(),
 				provider: 'copilotcli',

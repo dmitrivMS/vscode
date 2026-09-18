@@ -24,6 +24,7 @@ import type { InitializeResult } from '../../../../../../platform/agentHost/comm
 import { TestInstantiationService } from '../../../../../../platform/instantiation/test/common/instantiationServiceMock.js';
 import { ILogService, NullLogService } from '../../../../../../platform/log/common/log.js';
 import { InMemoryStorageService, IStorageService, StorageScope, StorageTarget } from '../../../../../../platform/storage/common/storage.js';
+import { NullTelemetryService } from '../../../../../../platform/telemetry/common/telemetryUtils.js';
 import { AgentHostAutomationStore } from '../../browser/agentHostAutomationStore.js';
 import type { IAutomation } from '../../../../../services/sessions/common/sessionsProvider.js';
 import { IAutomationStorageService, providerAutomationStorageKey } from '../../../../automations/common/automationStorageService.js';
@@ -477,7 +478,7 @@ suite('AgentHostAutomationStore', () => {
 			}
 			const storageKey = providerAutomationStorageKey('local-agent-host');
 			storage.store(storageKey, '{', StorageScope.APPLICATION, StorageTarget.MACHINE);
-			const legacy = disposables.add(new AutomationStore(storageKey, storage, new NullLogService(), automationStorage));
+			const legacy = disposables.add(new AutomationStore(storageKey, storage, new NullLogService(), NullTelemetryService, automationStorage));
 			const store = disposables.add(new AgentHostAutomationStore('local-agent-host', connection, legacy, undefined, new NullLogService(), storage, automationStorage));
 			await assert.rejects(store.completeMigration(), /cannot be migrated safely/);
 
@@ -502,7 +503,7 @@ suite('AgentHostAutomationStore', () => {
 		const storage = disposables.add(new InMemoryStorageService());
 		const automationStorage = new TestAutomationStorageService(storage);
 		const storageKey = providerAutomationStorageKey('local-agent-host');
-		const legacy = disposables.add(new AutomationStore(storageKey, storage, new NullLogService(), automationStorage));
+		const legacy = disposables.add(new AutomationStore(storageKey, storage, new NullLogService(), NullTelemetryService, automationStorage));
 		const store = disposables.add(new AgentHostAutomationStore('local-agent-host', connection, legacy, undefined, new NullLogService(), storage, automationStorage));
 		const migration = assert.rejects(store.completeMigration(), /cannot be migrated safely/);
 		storage.store(storageKey, '{', StorageScope.APPLICATION, StorageTarget.MACHINE);
@@ -1388,7 +1389,7 @@ suite('AgentHostAutomationStore', () => {
 		disposables.add(connection);
 		const storage = disposables.add(new InMemoryStorageService());
 		const automationStorage = new TestAutomationStorageService(storage);
-		const legacy = disposables.add(new AutomationStore(providerAutomationStorageKey('local-agent-host'), storage, new NullLogService(), automationStorage));
+		const legacy = disposables.add(new AutomationStore(providerAutomationStorageKey('local-agent-host'), storage, new NullLogService(), NullTelemetryService, automationStorage));
 		const automation = await legacy.createAutomation({
 			name: 'Active legacy run',
 			prompt: 'Review.',
@@ -1436,7 +1437,7 @@ suite('AgentHostAutomationStore', () => {
 		disposables.add(connection);
 		const storage = disposables.add(new InMemoryStorageService());
 		const automationStorage = new TestAutomationStorageService(storage);
-		const legacy = disposables.add(new AutomationStore(providerAutomationStorageKey('local-agent-host'), storage, new NullLogService(), automationStorage));
+		const legacy = disposables.add(new AutomationStore(providerAutomationStorageKey('local-agent-host'), storage, new NullLogService(), NullTelemetryService, automationStorage));
 		const automation = await legacy.createAutomation({
 			name: 'Stale legacy run',
 			prompt: 'Review.',
@@ -1472,7 +1473,7 @@ suite('AgentHostAutomationStore', () => {
 		disposables.add(connection);
 		const storage = disposables.add(new InMemoryStorageService());
 		const automationStorage = new TestAutomationStorageService(storage);
-		const legacy = disposables.add(new RunStartingDuringMigrationAutomationStore(providerAutomationStorageKey('local-agent-host'), storage, new NullLogService(), automationStorage));
+		const legacy = disposables.add(new RunStartingDuringMigrationAutomationStore(providerAutomationStorageKey('local-agent-host'), storage, new NullLogService(), NullTelemetryService, automationStorage));
 		const blocked = await legacy.createAutomation({
 			name: 'Blocked',
 			prompt: 'Review.',
@@ -1765,7 +1766,7 @@ suite('AgentHostAutomationStore', () => {
 		disposables.add(connection);
 		const storage = disposables.add(new InMemoryStorageService());
 		const automationStorage = new TestAutomationStorageService(storage);
-		const legacy = disposables.add(new AutomationStore(providerAutomationStorageKey('local-agent-host'), storage, new NullLogService(), automationStorage));
+		const legacy = disposables.add(new AutomationStore(providerAutomationStorageKey('local-agent-host'), storage, new NullLogService(), NullTelemetryService, automationStorage));
 		await legacy.createAutomation({
 			name: 'Scheduled review',
 			prompt: 'Review changes.',
@@ -1881,7 +1882,7 @@ suite('AgentHostAutomationStore', () => {
 		const connection = disposables.add(new TestAutomationConnection(false));
 		const storage = disposables.add(new InMemoryStorageService());
 		const automationStorage = new TestAutomationStorageService(storage);
-		const legacy = disposables.add(new PausedRemovalAutomationStore(providerAutomationStorageKey('local-agent-host'), storage, new NullLogService(), automationStorage));
+		const legacy = disposables.add(new PausedRemovalAutomationStore(providerAutomationStorageKey('local-agent-host'), storage, new NullLogService(), NullTelemetryService, automationStorage));
 		const initial = await legacy.createAutomation({
 			name: 'Retry me',
 			prompt: 'Review changes.',
@@ -1915,7 +1916,7 @@ suite('AgentHostAutomationStore', () => {
 		disposables.add(connection);
 		const storage = disposables.add(new InMemoryStorageService());
 		const automationStorage = new TestAutomationStorageService(storage);
-		const legacy = disposables.add(new AutomationStore(providerAutomationStorageKey('local-agent-host'), storage, new NullLogService(), automationStorage));
+		const legacy = disposables.add(new AutomationStore(providerAutomationStorageKey('local-agent-host'), storage, new NullLogService(), NullTelemetryService, automationStorage));
 		const automation = await legacy.createAutomation({
 			name: 'Scheduled review',
 			prompt: 'Review changes.',
@@ -1951,7 +1952,7 @@ suite('AgentHostAutomationStore', () => {
 		const connection = disposables.add(new TestAutomationConnection(false));
 		const storage = disposables.add(new InMemoryStorageService());
 		const automationStorage = new TestAutomationStorageService(storage);
-		const legacy = disposables.add(new PausedRemovalAutomationStore(providerAutomationStorageKey('local-agent-host'), storage, new NullLogService(), automationStorage));
+		const legacy = disposables.add(new PausedRemovalAutomationStore(providerAutomationStorageKey('local-agent-host'), storage, new NullLogService(), NullTelemetryService, automationStorage));
 		const initial = await legacy.createAutomation({
 			name: 'Initial',
 			prompt: 'Review initial changes.',
@@ -2010,7 +2011,7 @@ suite('AgentHostAutomationStore', () => {
 		const connection = disposables.add(new TestAutomationConnection(false));
 		const storage = disposables.add(new InMemoryStorageService());
 		const automationStorage = new TestAutomationStorageService(storage);
-		const legacy = disposables.add(new PausedRemovalAutomationStore(providerAutomationStorageKey('local-agent-host'), storage, new NullLogService(), automationStorage));
+		const legacy = disposables.add(new PausedRemovalAutomationStore(providerAutomationStorageKey('local-agent-host'), storage, new NullLogService(), NullTelemetryService, automationStorage));
 		const automation = await legacy.createAutomation({
 			name: 'Delete during migration',
 			prompt: 'Review changes.',
@@ -2055,7 +2056,7 @@ suite('AgentHostAutomationStore', () => {
 		const connection = disposables.add(new TestAutomationConnection(false));
 		const storage = disposables.add(new InMemoryStorageService());
 		const automationStorage = new TestAutomationStorageService(storage);
-		const legacy = disposables.add(new PausedRemovalAutomationStore(providerAutomationStorageKey('local-agent-host'), storage, new NullLogService(), automationStorage));
+		const legacy = disposables.add(new PausedRemovalAutomationStore(providerAutomationStorageKey('local-agent-host'), storage, new NullLogService(), NullTelemetryService, automationStorage));
 		await legacy.createAutomation({
 			name: 'Initial',
 			prompt: 'Review initial changes.',
@@ -2101,7 +2102,7 @@ suite('AgentHostAutomationStore', () => {
 		const connection = disposables.add(new TestAutomationConnection(true));
 		const storage = disposables.add(new InMemoryStorageService());
 		const automationStorage = new TestAutomationStorageService(storage);
-		const legacy = disposables.add(new AutomationStore(providerAutomationStorageKey('local-agent-host'), storage, new NullLogService(), automationStorage));
+		const legacy = disposables.add(new AutomationStore(providerAutomationStorageKey('local-agent-host'), storage, new NullLogService(), NullTelemetryService, automationStorage));
 		const automation = await legacy.createAutomation({
 			name: 'Residual',
 			prompt: 'Review residual changes.',
@@ -2137,7 +2138,7 @@ suite('AgentHostAutomationStore', () => {
 		disposables.add(connection);
 		const storage = disposables.add(new InMemoryStorageService());
 		const automationStorage = new FailingArchiveStorageService(storage);
-		const legacy = disposables.add(new AutomationStore(providerAutomationStorageKey('local-agent-host'), storage, new NullLogService(), automationStorage));
+		const legacy = disposables.add(new AutomationStore(providerAutomationStorageKey('local-agent-host'), storage, new NullLogService(), NullTelemetryService, automationStorage));
 		const automation = await legacy.createAutomation({
 			name: 'Preserve me',
 			prompt: 'Review changes.',
@@ -2163,7 +2164,7 @@ suite('AgentHostAutomationStore', () => {
 		const connection = disposables.add(new TestAutomationConnection(false));
 		const storage = disposables.add(new InMemoryStorageService());
 		const automationStorage = new TestAutomationStorageService(storage);
-		const legacy = disposables.add(new ToggleMigrationAutomationStore(providerAutomationStorageKey('local-agent-host'), storage, new NullLogService(), automationStorage));
+		const legacy = disposables.add(new ToggleMigrationAutomationStore(providerAutomationStorageKey('local-agent-host'), storage, new NullLogService(), NullTelemetryService, automationStorage));
 		const instantiationService = disposables.add(new TestInstantiationService());
 		const configurationService = new TestConfigurationService({ chat: { automations: { enabled: true } } });
 		instantiationService.stub(IConfigurationService, configurationService);
@@ -2198,7 +2199,7 @@ suite('AgentHostAutomationStore', () => {
 		const connection = disposables.add(new TestAutomationConnection(true));
 		const storage = disposables.add(new InMemoryStorageService());
 		const automationStorage = new TestAutomationStorageService(storage);
-		const legacy = disposables.add(new AutomationStore(providerAutomationStorageKey('local-agent-host'), storage, new NullLogService(), automationStorage));
+		const legacy = disposables.add(new AutomationStore(providerAutomationStorageKey('local-agent-host'), storage, new NullLogService(), NullTelemetryService, automationStorage));
 		const instantiationService = disposables.add(new TestInstantiationService());
 		const configurationService = new TestConfigurationService({ [CHAT_AUTOMATIONS_ENABLED_SETTING]: true });
 		instantiationService.stub(IConfigurationService, configurationService);
@@ -2267,7 +2268,7 @@ suite('AgentHostAutomationStore', () => {
 		const storage = disposables.add(new InMemoryStorageService());
 		const automationStorage = new TestAutomationStorageService(storage);
 		const storageKey = providerAutomationStorageKey('remote-agent-host');
-		const legacy = disposables.add(new AutomationStore(storageKey, storage, new NullLogService(), automationStorage));
+		const legacy = disposables.add(new AutomationStore(storageKey, storage, new NullLogService(), NullTelemetryService, automationStorage));
 		await legacy.createAutomation({
 			name: 'Legacy automation',
 			prompt: 'Review changes.',
@@ -2292,7 +2293,7 @@ suite('AgentHostAutomationStore', () => {
 		const connection = disposables.add(new TestAutomationConnection(true));
 		const storage = disposables.add(new InMemoryStorageService());
 		const automationStorage = new TestAutomationStorageService(storage);
-		const legacy = disposables.add(new AutomationStore(providerAutomationStorageKey('local-agent-host'), storage, new NullLogService(), automationStorage));
+		const legacy = disposables.add(new AutomationStore(providerAutomationStorageKey('local-agent-host'), storage, new NullLogService(), NullTelemetryService, automationStorage));
 		const instantiationService = disposables.add(new TestInstantiationService());
 		const configurationService = new TestConfigurationService({ [CHAT_AUTOMATIONS_ENABLED_SETTING]: true });
 		instantiationService.stub(IConfigurationService, configurationService);
@@ -2490,7 +2491,7 @@ suite('AgentHostAutomationStore', () => {
 		const storage = disposables.add(new InMemoryStorageService());
 		const automationStorage = new TestAutomationStorageService(storage);
 		const logService = new RecordingLogService();
-		const legacy = disposables.add(new AutomationStore(providerAutomationStorageKey('local-agent-host'), storage, new NullLogService(), automationStorage));
+		const legacy = disposables.add(new AutomationStore(providerAutomationStorageKey('local-agent-host'), storage, new NullLogService(), NullTelemetryService, automationStorage));
 		await legacy.createAutomation({
 			name: 'Pending migration',
 			prompt: 'Review.',

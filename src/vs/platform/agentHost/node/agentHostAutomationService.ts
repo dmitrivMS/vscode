@@ -973,6 +973,7 @@ export class AgentHostAutomationService extends Disposable implements IAgentHost
 		return {
 			...this._configurationTelemetry(automation.definition.session),
 			automationId: automation.resource,
+			executionAuthority: 'agentHost',
 			enabled: automation.definition.enabled,
 			scheduleKind: automation.definition.triggers.length === 0 ? 'manual' : 'scheduled',
 		};
@@ -983,6 +984,7 @@ export class AgentHostAutomationService extends Disposable implements IAgentHost
 		return {
 			automationId: run.automation,
 			runId: AgentSession.id(run.resource),
+			executionAuthority: 'agentHost',
 			trigger: run.origin.kind === AutomationRunOriginKind.Manual ? 'manual' : run.origin.catchUp ? 'catch_up' : run.origin.scheduledFor ? 'schedule' : 'event',
 			runCreatedAt: run.lifecycle.createdAt,
 			provider: session ? getAutomationTelemetryProvider(AgentSession.provider(session)) : 'default',

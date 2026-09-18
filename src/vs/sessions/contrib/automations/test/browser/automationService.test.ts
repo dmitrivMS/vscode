@@ -10,12 +10,28 @@ import { URI } from '../../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { NullLogService } from '../../../../../platform/log/common/log.js';
 import { InMemoryStorageService, StorageScope, StorageTarget } from '../../../../../platform/storage/common/storage.js';
+import { hashAutomationTelemetryId } from '../../../../../platform/telemetry/common/automationTelemetry.js';
+import { NullTelemetryService, NullTelemetryServiceShape } from '../../../../../platform/telemetry/common/telemetryUtils.js';
 import { AutomationService, AutomationStore } from '../../browser/automationService.js';
 import { AutomationRunTrigger, AutomationTarget, AutomationWorkspaceIsolation, IAutomationRun, IAutomationSchedule } from '../../../../../workbench/contrib/chat/common/automations/automation.js';
 import { AutomationActiveRunError, type AutomationCatalogueState, isAutomationActiveRunError } from '../../../../../workbench/contrib/chat/common/automations/automationService.js';
 import { createAutomationService, TestAutomationStorageService } from './automationTestUtils.js';
 
 const FOLDER = URI.parse('file:///workspace');
+
+function isTelemetryData(data: unknown): data is Record<string, unknown> {
+	return typeof data === 'object' && data !== null;
+}
+
+class TestTelemetryService extends NullTelemetryServiceShape {
+	readonly events: { readonly name: string; readonly data: Record<string, unknown> }[] = [];
+
+	override publicLog2(eventName?: string, data?: unknown): void {
+		if (eventName && isTelemetryData(data)) {
+			this.events.push({ name: eventName, data });
+		}
+	}
+}
 
 function workspaceTarget(folderUri = FOLDER, isolation: AutomationWorkspaceIsolation = { kind: 'default' }): AutomationTarget {
 	return { kind: 'workspace', folderUri, isolation };
@@ -89,11 +105,52 @@ suite('AutomationService', () => {
 		});
 	});
 
+	test('logs persisted fallback lifecycle transitions and excludes snapshot imports', async () => {
+		const storage = teardown.add(new InMemoryStorageService());
+		const telemetryService = new TestTelemetryService();
+		const service = teardown.add(createAutomationService(storage, new NullLogService(), telemetryService));
+		service.setClockForTesting(() => new Date('2026-01-01T00:00:00.000Z'));
+		const automation = await service.createAutomation({
+			name: 'Daily review',
+			prompt: 'Review',
+			schedule: dailySchedule(),
+			target: workspaceTarget(),
+		});
+		const updated = await service.updateAutomation(automation.id, { prompt: 'Review changes' });
+		const run = await claimRun(service, automation.id, 'manual');
+		await service.updateRun(run.id, { status: 'running' });
+		const linked = await service.updateRun(run.id, { sessionResource: URI.parse('test:///session') });
+		assert.ok(linked);
+		const completed = await service.updateRun(run.id, {
+			status: 'completed',
+			completedAt: '2026-01-01T00:01:00.000Z',
+			outcome: 'success',
+		});
+		assert.ok(completed);
+		await service.deleteAutomation(automation.id);
+		await service.importAutomationSnapshot({ automation: updated, runs: [completed] });
+
+		assert.deepStrictEqual(telemetryService.events.map(event => ({
+			name: event.name,
+			automationId: event.data.automationId,
+			runId: event.data.runId,
+			authority: event.data.executionAuthority,
+			outcome: event.data.outcome,
+		})), [
+			{ name: 'automation.created', automationId: hashAutomationTelemetryId(automation.id), runId: undefined, authority: 'browser', outcome: undefined },
+			{ name: 'automation.updated', automationId: hashAutomationTelemetryId(automation.id), runId: undefined, authority: 'browser', outcome: undefined },
+			{ name: 'automation.runCreated', automationId: hashAutomationTelemetryId(automation.id), runId: hashAutomationTelemetryId(run.id), authority: 'browser', outcome: undefined },
+			{ name: 'automation.runStarted', automationId: hashAutomationTelemetryId(automation.id), runId: hashAutomationTelemetryId(run.id), authority: 'browser', outcome: undefined },
+			{ name: 'automation.runCompleted', automationId: hashAutomationTelemetryId(automation.id), runId: hashAutomationTelemetryId(run.id), authority: 'browser', outcome: 'success' },
+			{ name: 'automation.deleted', automationId: hashAutomationTelemetryId(automation.id), runId: undefined, authority: 'browser', outcome: undefined },
+		]);
+	});
+
 	test('provider stores isolate ledgers by storage key', async () => {
 		const storage = teardown.add(new InMemoryStorageService());
 		const automationStorage = new TestAutomationStorageService(storage);
-		const first = teardown.add(new AutomationStore('automations.first', storage, new NullLogService(), automationStorage));
-		const second = teardown.add(new AutomationStore('automations.second', storage, new NullLogService(), automationStorage));
+		const first = teardown.add(new AutomationStore('automations.first', storage, new NullLogService(), NullTelemetryService, automationStorage));
+		const second = teardown.add(new AutomationStore('automations.second', storage, new NullLogService(), NullTelemetryService, automationStorage));
 
 		await first.createAutomation({ name: 'First', prompt: 'first', schedule: dailySchedule(), target: workspaceTarget() });
 		await second.createAutomation({ name: 'Second', prompt: 'second', schedule: dailySchedule(), target: workspaceTarget() });

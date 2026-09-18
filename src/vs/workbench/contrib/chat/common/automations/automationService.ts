@@ -6,6 +6,7 @@
 import { IObservable } from '../../../../../base/common/observable.js';
 import { stableStringify } from '../../../../../base/common/objects.js';
 import { URI } from '../../../../../base/common/uri.js';
+import type { AutomationRunOutcome } from '../../../../../platform/telemetry/common/automationTelemetry.js';
 import { createDecorator } from '../../../../../platform/instantiation/common/instantiation.js';
 import { ChatPermissionLevel } from '../constants.js';
 import { IAutomationDescriptor, IAutomationRun, AutomationRunTrigger, IAutomationSchedule, IAutomationSessionTemplate, AutomationTarget } from './automation.js';
@@ -153,6 +154,7 @@ export interface IUpdateAutomationRunOptions {
 	readonly sessionResource?: URI;
 	readonly completedAt?: string;
 	readonly errorMessage?: string;
+	readonly outcome?: AutomationRunOutcome;
 }
 
 /** Outcome of an attempt to claim an automation's single active-run slot. */
