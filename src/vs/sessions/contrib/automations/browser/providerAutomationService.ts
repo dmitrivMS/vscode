@@ -13,7 +13,7 @@ import { ILogService } from '../../../../platform/log/common/log.js';
 import { IAutomationDescriptor, IAutomationRun, AutomationRunTrigger } from '../../../../workbench/contrib/chat/common/automations/automation.js';
 import { AutomationCatalogueState, AutomationMutationGuard, combineAutomationCatalogueStates, IAutomationProviderDescriptor, IAutomationRunClaim, IAutomationService, ICreateAutomationOptions, IGuardedAutomationUpdateResult, isAutomationActiveRunError, serializeAutomationEditableState, IUpdateAutomationOptions, IUpdateAutomationRunOptions } from '../../../../workbench/contrib/chat/common/automations/automationService.js';
 import { ISessionsProvidersService } from '../../../services/sessions/browser/sessionsProvidersService.js';
-import { IAutomation, ISessionsProviderAutomations } from '../../../services/sessions/common/sessionsProvider.js';
+import { AutomationMigrationRetryScheduledError, IAutomation, ISessionsProviderAutomations } from '../../../services/sessions/common/sessionsProvider.js';
 import { AutomationService } from './automationService.js';
 
 interface IAutomationStoreEntry {
@@ -370,6 +370,11 @@ export class ProviderAutomationService extends Disposable implements IAutomation
 			() => this.migrationRetry.clear(),
 			error => {
 				if (this._store.isDisposed || isCancellationError(error)) {
+					return;
+				}
+				if (error instanceof AutomationMigrationRetryScheduledError) {
+					this.logService.info('[ProviderAutomationService] Provider-owned Automation migration retry is already scheduled.');
+					this.migrationPromise = Promise.resolve();
 					return;
 				}
 				if (isAutomationActiveRunError(error)) {

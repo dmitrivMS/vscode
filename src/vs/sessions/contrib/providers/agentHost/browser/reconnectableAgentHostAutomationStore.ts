@@ -13,11 +13,11 @@ import { IConfigurationService } from '../../../../../platform/configuration/com
 import { ILogService } from '../../../../../platform/log/common/log.js';
 import type { AutomationRunTrigger, IAutomationDescriptor, IAutomationRun } from '../../../../../workbench/contrib/chat/common/automations/automation.js';
 import { type AutomationCatalogueState, isAutomationActiveRunError, type AutomationMutationGuard, type IAutomationRunClaim, type ICreateAutomationOptions, type IGuardedAutomationUpdateResult, type IUpdateAutomationOptions, type IUpdateAutomationRunOptions } from '../../../../../workbench/contrib/chat/common/automations/automationService.js';
-import type { IAutomation, IAutomationSnapshotImportResult, IGuardedAutomationSnapshotRemovalResult, ISessionsProviderAutomations } from '../../../../services/sessions/common/sessionsProvider.js';
+import { AutomationMigrationRetryScheduledError, type IAutomation, type IAutomationSnapshotImportResult, type IGuardedAutomationSnapshotRemovalResult, type ISessionsProviderAutomations } from '../../../../services/sessions/common/sessionsProvider.js';
 import { AgentHostAutomationStore, type IAgentHostAutomationBoundaryMapper, type IAgentHostAutomationConnection } from './agentHostAutomationStore.js';
 import { CHAT_AUTOMATIONS_ENABLED_SETTING } from '../../../../../workbench/contrib/chat/common/automations/automationsEnabled.js';
 
-const MIGRATION_RETRY_DELAY_MS = 30_000;
+const MIGRATION_RETRY_DELAYS_MS = [30_000, 2 * 60_000, 10 * 60_000, 30 * 60_000] as const;
 
 type AutomationAuthorityState =
 	| { readonly kind: 'disconnected' | 'initializing' | 'unsupported' | 'disabled' }
@@ -34,6 +34,8 @@ export class ReconnectableAgentHostAutomationStore extends Disposable implements
 	private readonly _configurationChanged;
 	private readonly _authorityState = observableValue<AutomationAuthorityState>(this, { kind: 'disconnected' });
 	private readonly _disposeCancellation = new CancellationTokenSource();
+	private _migrationRetryAttempt = 0;
+	private _migrationRetryError: AutomationMigrationRetryScheduledError | undefined;
 
 	readonly automations = derived(this, reader => this._currentStore.read(reader)?.automations.read(reader) ?? this._legacySource?.automations.read(reader) ?? []);
 	readonly runs = derived(this, reader => this._currentStore.read(reader)?.runs.read(reader) ?? this._legacySource?.runs.read(reader) ?? []);
@@ -73,7 +75,7 @@ export class ReconnectableAgentHostAutomationStore extends Disposable implements
 
 	setConnection(connection: IAgentHostAutomationConnection): void {
 		this._connectionBinding.clear();
-		this._migrationRetry.clear();
+		this._resetMigrationRetry();
 		transaction(tx => {
 			this._currentStore.set(undefined, tx);
 			this._setAuthorityState({ kind: 'initializing' }, tx);
@@ -84,9 +86,7 @@ export class ReconnectableAgentHostAutomationStore extends Disposable implements
 			const enabled = this._configurationService.getValue<boolean>(CHAT_AUTOMATIONS_ENABLED_SETTING) === true;
 			const current = this._currentStore.read(reader);
 			if (!enabled) {
-				if (current) {
-					this._migrationRetry.clear();
-				}
+				this._resetMigrationRetry();
 				transaction(tx => {
 					this._currentStore.set(undefined, tx);
 					this._setAuthorityState({ kind: 'disabled' }, tx);
@@ -98,9 +98,7 @@ export class ReconnectableAgentHostAutomationStore extends Disposable implements
 				return;
 			}
 			if (!initializeResult.automations) {
-				if (current) {
-					this._migrationRetry.clear();
-				}
+				this._resetMigrationRetry();
 				transaction(tx => {
 					this._currentStore.set(undefined, tx);
 					this._setAuthorityState({ kind: 'unsupported' }, tx);
@@ -122,7 +120,7 @@ export class ReconnectableAgentHostAutomationStore extends Disposable implements
 
 	clearConnection(): void {
 		this._connectionBinding.clear();
-		this._migrationRetry.clear();
+		this._resetMigrationRetry();
 		transaction(tx => {
 			this._currentStore.set(undefined, tx);
 			this._setAuthorityState({ kind: 'disconnected' }, tx);
@@ -215,7 +213,7 @@ export class ReconnectableAgentHostAutomationStore extends Disposable implements
 			let state = this._authorityState.get();
 			if (state.kind === 'initializing') {
 				const waitCancellation = new CancellationTokenSource(this._disposeCancellation.token);
-				const waitTimeout = disposableTimeout(() => waitCancellation.cancel(), MIGRATION_RETRY_DELAY_MS);
+				const waitTimeout = disposableTimeout(() => waitCancellation.cancel(), MIGRATION_RETRY_DELAYS_MS[0]);
 				try {
 					state = await waitForState(this._authorityState, candidate => candidate.kind !== 'initializing', undefined, waitCancellation.token);
 				} catch (error) {
@@ -232,15 +230,19 @@ export class ReconnectableAgentHostAutomationStore extends Disposable implements
 			if (state.kind !== 'supported') {
 				return;
 			}
+			if (this._migrationRetryError) {
+				throw this._migrationRetryError;
+			}
 			try {
 				await state.store.completeMigration();
+				this._resetMigrationRetry();
 				return;
 			} catch (error) {
 				const current = this._authorityState.get();
 				if (current.kind !== 'supported' || current.store !== state.store) {
 					continue;
 				}
-				throw error;
+				throw this._scheduleMigrationRetry(state.store, error);
 			}
 		}
 	}
@@ -258,17 +260,43 @@ export class ReconnectableAgentHostAutomationStore extends Disposable implements
 		if (this._store.isDisposed || this._currentStore.get() !== store) {
 			return;
 		}
-		void store.completeMigration().catch(error => {
-			if (this._store.isDisposed || isCancellationError(error) || this._currentStore.get() !== store) {
-				return;
-			}
-			if (isAutomationActiveRunError(error)) {
-				this._logService.info(`[ReconnectableAgentHostAutomationStore] Automation migration deferred while a legacy run is active; retrying in ${MIGRATION_RETRY_DELAY_MS}ms.`);
-			} else {
-				this._logService.error(`[ReconnectableAgentHostAutomationStore] Failed to initialize remote Automation authority; retrying in ${MIGRATION_RETRY_DELAY_MS}ms.`, error);
-			}
-			this._migrationRetry.value = disposableTimeout(() => this._completeMigration(store), MIGRATION_RETRY_DELAY_MS);
-		});
+		void store.completeMigration().then(
+			() => this._resetMigrationRetry(),
+			error => {
+				if (this._store.isDisposed || isCancellationError(error) || this._currentStore.get() !== store) {
+					return;
+				}
+				this._scheduleMigrationRetry(store, error);
+			},
+		);
+	}
+
+	private _scheduleMigrationRetry(store: AgentHostAutomationStore, error: unknown): AutomationMigrationRetryScheduledError {
+		if (this._migrationRetryError) {
+			return this._migrationRetryError;
+		}
+		const migrationError = error instanceof Error ? error : new Error(String(error));
+		const scheduledError = new AutomationMigrationRetryScheduledError(migrationError);
+		this._migrationRetryError = scheduledError;
+		const delay = MIGRATION_RETRY_DELAYS_MS[Math.min(this._migrationRetryAttempt, MIGRATION_RETRY_DELAYS_MS.length - 1)];
+		this._migrationRetryAttempt++;
+		if (isAutomationActiveRunError(error)) {
+			this._logService.info(`[ReconnectableAgentHostAutomationStore] Automation migration deferred while a legacy run is active; retrying in ${delay}ms.`);
+		} else {
+			this._logService.error(`[ReconnectableAgentHostAutomationStore] Failed to initialize remote Automation authority; retrying in ${delay}ms.`, error);
+		}
+		this._migrationRetry.value = disposableTimeout(() => {
+			this._migrationRetry.clear();
+			this._migrationRetryError = undefined;
+			this._completeMigration(store);
+		}, delay);
+		return scheduledError;
+	}
+
+	private _resetMigrationRetry(): void {
+		this._migrationRetry.clear();
+		this._migrationRetryAttempt = 0;
+		this._migrationRetryError = undefined;
 	}
 
 	private _requireAgentHostStore(): AgentHostAutomationStore {

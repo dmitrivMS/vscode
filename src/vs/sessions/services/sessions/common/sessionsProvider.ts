@@ -129,6 +129,13 @@ export type IGuardedAutomationSnapshotRemovalResult =
 	| { readonly kind: 'conflict'; readonly current: IAutomation }
 	| { readonly kind: 'missing' };
 
+export class AutomationMigrationRetryScheduledError extends Error {
+	constructor(readonly migrationError: Error) {
+		super(migrationError.message);
+		this.name = 'AutomationMigrationRetryScheduledError';
+	}
+}
+
 export interface ISessionsProviderAutomations extends IAutomationStore {
 	canRunAutomation?(automationId: string): boolean;
 	canUpdateAutomation?(automationId: string): boolean;

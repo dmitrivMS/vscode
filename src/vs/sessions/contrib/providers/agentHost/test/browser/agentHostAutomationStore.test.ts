@@ -26,7 +26,7 @@ import { ILogService, NullLogService } from '../../../../../../platform/log/comm
 import { InMemoryStorageService, IStorageService, StorageScope, StorageTarget } from '../../../../../../platform/storage/common/storage.js';
 import { NullTelemetryService } from '../../../../../../platform/telemetry/common/telemetryUtils.js';
 import { AgentHostAutomationStore } from '../../browser/agentHostAutomationStore.js';
-import type { IAutomation } from '../../../../../services/sessions/common/sessionsProvider.js';
+import { AutomationMigrationRetryScheduledError, type IAutomation } from '../../../../../services/sessions/common/sessionsProvider.js';
 import { IAutomationStorageService, providerAutomationStorageKey } from '../../../../automations/common/automationStorageService.js';
 import { CHAT_AUTOMATIONS_ENABLED_SETTING } from '../../../../../../workbench/contrib/chat/common/automations/automationsEnabled.js';
 import { TestAutomationStorageService } from '../../../../automations/test/browser/automationTestUtils.js';
@@ -55,6 +55,7 @@ class TestAutomationConnection {
 	runPrimarySession = 'mock:/session';
 	suppressCreatePublication = false;
 	updateError: Error | undefined;
+	migrationFailures = 0;
 	readonly createRequested = new DeferredPromise<void>();
 
 	constructor(migrationComplete: boolean, catalogAvailable = true) {
@@ -201,6 +202,10 @@ class TestAutomationConnection {
 			};
 			this._onDidCatalogChange.fire(this._catalog);
 		} else if (action.type === ActionType.RootConfigChanged && action.config[AGENT_HOST_AUTOMATION_MIGRATION_CONFIG_KEY]) {
+			if (this.migrationFailures > 0) {
+				this.migrationFailures--;
+				throw new Error('migration unavailable');
+			}
 			this._migrationComplete = true;
 			this._catalog = {
 				...this._catalog,
@@ -2427,6 +2432,43 @@ suite('AgentHostAutomationStore', () => {
 		}, {
 			subscribedChannel: undefined,
 			completionRequests: 0,
+		});
+	});
+
+	test('failed migration is deduplicated while the provider-owned backoff is pending', async () => {
+		const connection = disposables.add(new TestAutomationConnection(false));
+		connection.migrationFailures = 1;
+		const configurationService = new TestConfigurationService({ [CHAT_AUTOMATIONS_ENABLED_SETTING]: true });
+		const instantiationService = disposables.add(new TestInstantiationService());
+		const storage = disposables.add(new InMemoryStorageService());
+		const automationStorage = new TestAutomationStorageService(storage);
+		const logService = new RecordingLogService();
+		instantiationService.stub(IConfigurationService, configurationService);
+		instantiationService.stub(ILogService, logService);
+		instantiationService.stub(IStorageService, storage);
+		instantiationService.stub(IAutomationStorageService, automationStorage);
+		const store = disposables.add(new ReconnectableAgentHostAutomationStore(
+			'local-agent-host',
+			undefined,
+			undefined,
+			instantiationService,
+			logService,
+			configurationService,
+		));
+		store.setConnection(connection);
+
+		await assert.rejects(store.completeMigration(), error => error instanceof AutomationMigrationRetryScheduledError);
+		const dispatchCountAfterFailure = connection.dispatched.filter(entry => entry.channel === ROOT_STATE_URI).length;
+		await assert.rejects(store.completeMigration(), error => error instanceof AutomationMigrationRetryScheduledError);
+
+		assert.deepStrictEqual({
+			dispatchCountAfterFailure,
+			dispatchCountAfterDuplicateRequest: connection.dispatched.filter(entry => entry.channel === ROOT_STATE_URI).length,
+			retryLogs: logService.errors.filter(message => message.includes('retrying in')),
+		}, {
+			dispatchCountAfterFailure: 1,
+			dispatchCountAfterDuplicateRequest: 1,
+			retryLogs: ['[ReconnectableAgentHostAutomationStore] Failed to initialize remote Automation authority; retrying in 30000ms.'],
 		});
 	});
 
