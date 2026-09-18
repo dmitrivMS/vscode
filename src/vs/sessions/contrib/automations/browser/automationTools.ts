@@ -13,6 +13,7 @@ import { ConfirmationOptionKind } from '../../../../platform/agentHost/common/st
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { ContextKeyExpr } from '../../../../platform/contextkey/common/contextkey.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
+import { ITelemetryService } from '../../../../platform/telemetry/common/telemetry.js';
 import { IWorkbenchContribution } from '../../../../workbench/common/contributions.js';
 import { ChatContextKeys } from '../../../../workbench/contrib/chat/common/actions/chatContextKeys.js';
 import { AutomationInterval, AutomationTarget, AutomationWorkspaceIsolation, IAutomationDescriptor, IAutomationRun, IAutomationSchedule, IAutomationSessionTemplate, isAutomationModelConfiguration } from '../../../../workbench/contrib/chat/common/automations/automation.js';
@@ -24,6 +25,7 @@ import { ChatPermissionLevel } from '../../../../workbench/contrib/chat/common/c
 import { CountTokensCallback, ILanguageModelToolsService, IPreparedToolInvocation, IToolData, IToolImpl, IToolInvocation, IToolInvocationPreparationContext, IToolResult, ToolDataSource, ToolProgress } from '../../../../workbench/contrib/chat/common/tools/languageModelToolsService.js';
 import { ISession } from '../../../services/sessions/common/session.js';
 import { IProviderSessionType, ISessionsManagementService } from '../../../services/sessions/common/sessionsManagement.js';
+import { logAutomationConfigureOutcome } from './automationTelemetry.js';
 
 export const ListAutomationsToolId = 'vscode_listAutomations';
 export const ConfigureAutomationToolId = 'vscode_configureAutomation';
@@ -365,6 +367,7 @@ export class ConfigureAutomationTool implements IToolImpl {
 		@IAutomationService private readonly automationService: IAutomationService,
 		@ISessionsManagementService private readonly sessionsManagementService: ISessionsManagementService,
 		@IConfigurationService private readonly configurationService: IConfigurationService,
+		@ITelemetryService private readonly telemetryService: ITelemetryService,
 	) { }
 
 	getToolData(): IToolData {
@@ -519,9 +522,16 @@ The change uses the current tool-approval policy. When approval is required, the
 
 	async prepareToolInvocation(context: IToolInvocationPreparationContext, _token: CancellationToken): Promise<IPreparedToolInvocation> {
 		if (!isAutomationsEnabled(this.configurationService)) {
+			logAutomationConfigureOutcome(this.telemetryService, 'unknown', 'blocked');
 			throw new AutomationToolInputError('Automations are disabled.');
 		}
-		const proposal = this.parseProposal(context.parameters, context.chatSessionResource);
+		let proposal: IAutomationProposal;
+		try {
+			proposal = this.parseProposal(context.parameters, context.chatSessionResource);
+		} catch (error) {
+			logAutomationConfigureOutcome(this.telemetryService, 'unknown', error instanceof AutomationToolInputError ? 'blocked' : 'failed');
+			throw error;
+		}
 		const isUpdate = proposal.kind === 'update';
 		return {
 			invocationMessage: isUpdate
@@ -559,10 +569,10 @@ The change uses the current tool-approval policy. When approval is required, the
 
 	async invoke(invocation: IToolInvocation, _countTokens: CountTokensCallback, _progress: ToolProgress, token: CancellationToken): Promise<IToolResult> {
 		if (!isAutomationsEnabled(this.configurationService)) {
-			return automationToolError('Automations are disabled.');
+			return this.completeOperation('unknown', automationToolError('Automations are disabled.'));
 		}
 		if (token.isCancellationRequested) {
-			return automationToolCancelled();
+			return this.completeOperation('unknown', automationToolCancelled());
 		}
 
 		let proposal: IAutomationProposal;
@@ -570,8 +580,9 @@ The change uses the current tool-approval policy. When approval is required, the
 			proposal = this.parseProposal(invocation.parameters, invocation.context?.sessionResource);
 		} catch (error) {
 			if (error instanceof AutomationToolInputError) {
-				return automationToolError(error.message);
+				return this.completeOperation('unknown', automationToolError(error.message));
 			}
+			logAutomationConfigureOutcome(this.telemetryService, 'unknown', 'failed');
 			throw error;
 		}
 
@@ -580,7 +591,7 @@ The change uses the current tool-approval policy. When approval is required, the
 				const target = proposal.validateTargetAvailability
 					? this.resolveAvailableTarget(proposal.initialValues.target)
 					: proposal.initialValues.target;
-				return await this.applyCreate({ ...proposal.initialValues, target }, token);
+				return this.completeOperation('create', await this.applyCreate({ ...proposal.initialValues, target }, token));
 			}
 
 			const target = proposal.initialValues.target
@@ -593,21 +604,28 @@ The change uses the current tool-approval policy. When approval is required, the
 				? invocation.toolSpecificData
 				: undefined;
 			if (prepared && (prepared.expectedAutomationId !== proposal.existing.id || prepared.expectedEditableState !== serializeAutomationEditableState(proposal.existing))) {
-				return automationToolError(`Automation "${proposal.existing.id}" changed before the update was applied. Call listAutomations to refresh it before proposing new changes. No changes were made.`);
+				return this.completeOperation('update', automationToolError(`Automation "${proposal.existing.id}" changed before the update was applied. Call listAutomations to refresh it before proposing new changes. No changes were made.`));
 			}
-			return await this.applyUpdate(proposal.existing, patch, token);
+			return this.completeOperation('update', await this.applyUpdate(proposal.existing, patch, token));
 		} catch (error) {
 			if (error instanceof AutomationToolMutationBlockedError) {
-				return error.result;
+				return this.completeOperation(proposal.kind, error.result);
 			}
 			if (error instanceof AutomationToolInputError) {
-				return automationToolError(error.message);
+				return this.completeOperation(proposal.kind, automationToolError(error.message));
 			}
 			if (error instanceof AutomationSessionTemplateAuthorityError) {
-				return automationToolError(error.message);
+				return this.completeOperation(proposal.kind, automationToolError(error.message));
 			}
+			logAutomationConfigureOutcome(this.telemetryService, proposal.kind, 'failed');
 			throw error;
 		}
+	}
+
+	private completeOperation(operation: IAutomationProposal['kind'] | 'unknown', result: IToolResult): IToolResult {
+		const configured = result.toolSpecificData?.kind === 'automationConfigured' ? result.toolSpecificData.operation : undefined;
+		logAutomationConfigureOutcome(this.telemetryService, operation, configured ?? 'blocked');
+		return result;
 	}
 
 	private async applyCreate(options: ICreateAutomationOptions, token: CancellationToken): Promise<IToolResult> {
