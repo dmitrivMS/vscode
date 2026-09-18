@@ -532,24 +532,24 @@ The change uses the current tool-approval policy. When approval is required, the
 			logAutomationConfigureOutcome(this.telemetryService, 'unknown', error instanceof AutomationToolInputError ? 'blocked' : 'failed');
 			throw error;
 		}
-		const isUpdate = proposal.kind === 'update';
+		const existing = proposal.kind === 'update' ? proposal.existing : undefined;
 		return {
-			invocationMessage: isUpdate
+			invocationMessage: existing
 				? localize('automation.tool.configure.update.invocationMessage', "Configuring automation")
 				: localize('automation.tool.configure.create.invocationMessage', "Configuring a new automation"),
-			pastTenseMessage: isUpdate
+			pastTenseMessage: existing
 				? localize('automation.tool.configure.update.pastTenseMessage', "Configured automation")
 				: localize('automation.tool.configure.create.pastTenseMessage', "Configured a new automation"),
 			confirmationMessages: {
-				title: isUpdate
+				title: existing
 					? localize('automation.tool.configure.update.confirmationTitle', "Update Automation?")
 					: localize('automation.tool.configure.create.confirmationTitle', "Create Automation?"),
-				message: isUpdate
+				message: existing
 					? new MarkdownString(localize(
 						'automation.tool.configure.update.confirmationMessage',
 						"Apply the proposed changes to **{0}** (`{1}`)?",
-						proposal.existing.name,
-						proposal.existing.id,
+						existing.name,
+						existing.id,
 					))
 					: new MarkdownString(localize(
 						'automation.tool.configure.create.confirmationMessage',
