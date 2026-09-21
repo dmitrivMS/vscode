@@ -14,7 +14,7 @@ export type AutomationRunOutcome = 'success' | 'error' | 'cancelled' | 'timeout'
 export interface IAutomationConfigurationTelemetry {
 	readonly copilotSku?: string;
 	readonly provider: 'default' | 'other' | 'copilot' | 'copilotcli' | 'claude' | 'codex' | 'copilot-cloud';
-	readonly model: string | TelemetryTrustedValue<string> | undefined;
+	readonly model: 'byokModel' | 'unknown' | TelemetryTrustedValue<string> | undefined;
 	readonly modelSelectionKind: 'default' | 'auto' | 'explicit';
 	readonly mode: 'providerDefault' | 'other' | 'agent' | 'ask' | 'edit' | 'interactive' | 'plan' | 'autopilot';
 	readonly permissionLevel: 'providerDefault' | 'other' | 'default' | 'assisted' | 'autoApprove' | 'autopilot';

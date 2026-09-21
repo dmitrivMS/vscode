@@ -154,7 +154,7 @@ suite('AutomationRunner', () => {
 		const service = teardown.add(createAutomationService(storage, log));
 		const sessionsMgmt = new FakeSessionsManagementService();
 		const notifications = new RecordingNotificationService();
-		const runner = new AutomationRunner(service, sessionsMgmt, log, notifications, NullTelemetryService);
+		const runner = new AutomationRunner(service, sessionsMgmt, log, notifications);
 		return { service, sessionsMgmt, runner, notifications };
 	}
 
@@ -183,7 +183,7 @@ suite('AutomationRunner', () => {
 		const log = new NullLogService();
 		const service = teardown.add(new ExternalDispatchAutomationService(storage, log, NullTelemetryService, new TestAutomationStorageService(storage)));
 		const sessionsMgmt = new FakeSessionsManagementService();
-		const runner = new AutomationRunner(service, sessionsMgmt, log, new RecordingNotificationService(), NullTelemetryService);
+		const runner = new AutomationRunner(service, sessionsMgmt, log, new RecordingNotificationService());
 		const automation = await service.createAutomation({ name: 'A', prompt: 'p', schedule: hourly(), target: workspaceTarget() });
 
 		const operation = runner.runOnce(automation, 'manual', 0);
@@ -226,7 +226,7 @@ suite('AutomationRunner', () => {
 		const storage = teardown.add(new InMemoryStorageService());
 		const log = new NullLogService();
 		const service = teardown.add(new ExternalDispatchAutomationService(storage, log, NullTelemetryService, new TestAutomationStorageService(storage)));
-		const runner = new AutomationRunner(service, new FakeSessionsManagementService(), log, new RecordingNotificationService(), NullTelemetryService);
+		const runner = new AutomationRunner(service, new FakeSessionsManagementService(), log, new RecordingNotificationService());
 		const automation = await service.createAutomation({ name: 'A', prompt: 'p', schedule: hourly(), target: workspaceTarget() });
 		const cancellation = new CancellationTokenSource();
 		const operation = runner.runOnce(automation, 'manual', 0, cancellation.token);

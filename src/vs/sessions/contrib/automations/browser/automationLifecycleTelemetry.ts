@@ -4,8 +4,12 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { SessionConfigKey } from '../../../../platform/agentHost/common/sessionConfigKeys.js';
+import { LOCAL_AGENT_HOST_SCHEME_PREFIX } from '../../../../platform/agentHost/common/agentHostConnectionsService.js';
+import { parseRemoteAgentHostHarness } from '../../../../platform/agentHost/common/agentHostSessionType.js';
 import { getAutomationTelemetryIsolation, getAutomationTelemetryMode, getAutomationTelemetryPermissionLevel, getAutomationTelemetryProvider, type IAutomationConfigurationTelemetry, type IAutomationDefinitionTelemetry, type IAutomationRunTelemetry } from '../../../../platform/telemetry/common/automationTelemetry.js';
 import type { IAutomationDescriptor, IAutomationRun } from '../../../../workbench/contrib/chat/common/automations/automation.js';
+import { isLocalAgentHostTarget } from '../../../../workbench/contrib/chat/common/chatSessionsService.js';
+import { getChatSessionType } from '../../../../workbench/contrib/chat/common/model/chatUri.js';
 
 export function getBrowserAutomationConfigurationTelemetry(automation: IAutomationDescriptor): IAutomationConfigurationTelemetry {
 	const template = automation.sessionTemplate;
@@ -40,7 +44,14 @@ export function getBrowserAutomationRunTelemetry(run: IAutomationRun, automation
 		executionAuthority: 'browser',
 		trigger: run.trigger,
 		runCreatedAt: run.startedAt,
-		provider: getBrowserAutomationConfigurationTelemetry(automation).provider,
+		provider: getBrowserAutomationProvider(run.sessionResource ? getChatSessionType(run.sessionResource) : automation.target.sessionTypeId),
 		sessionCreated: run.sessionResource !== undefined,
 	};
+}
+
+function getBrowserAutomationProvider(sessionType: string | undefined): IAutomationConfigurationTelemetry['provider'] {
+	const provider = sessionType && isLocalAgentHostTarget(sessionType)
+		? sessionType.slice(LOCAL_AGENT_HOST_SCHEME_PREFIX.length)
+		: sessionType ? parseRemoteAgentHostHarness(sessionType) ?? sessionType : undefined;
+	return getAutomationTelemetryProvider(provider);
 }

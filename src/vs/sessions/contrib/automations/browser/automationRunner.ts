@@ -9,15 +9,13 @@ import { derived, waitForState } from '../../../../base/common/observable.js';
 import { localize } from '../../../../nls.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
-import { logAutomationRunCompleted, type AutomationRunOutcome } from '../../../../platform/telemetry/common/automationTelemetry.js';
-import { ITelemetryService } from '../../../../platform/telemetry/common/telemetry.js';
+import type { AutomationRunOutcome } from '../../../../platform/telemetry/common/automationTelemetry.js';
 import { AutomationRunTrigger, IAutomationDescriptor, IAutomationRun } from '../../../../workbench/contrib/chat/common/automations/automation.js';
 import { IAutomationRunDispatch, IAutomationRunner, IAutomationRunOperation } from '../../../../workbench/contrib/chat/common/automations/automationRunner.js';
 import { IAutomationService } from '../../../../workbench/contrib/chat/common/automations/automationService.js';
 import { ISession, SessionStatus } from '../../../services/sessions/common/session.js';
 import { ICreateNewSessionOptions, ISendRequestOptions, ISessionsManagementService } from '../../../services/sessions/common/sessionsManagement.js';
 import { IAutomationSessionConfiguration } from '../../../services/sessions/common/sessionsProvider.js';
-import { getBrowserAutomationRunTelemetry } from './automationLifecycleTelemetry.js';
 
 /** Sessions-layer runner. Never throws; failures are recorded on the run row. */
 export class AutomationRunner implements IAutomationRunner {
@@ -29,7 +27,6 @@ export class AutomationRunner implements IAutomationRunner {
 		@ISessionsManagementService private readonly sessionsManagementService: ISessionsManagementService,
 		@ILogService private readonly logService: ILogService,
 		@INotificationService private readonly notificationService: INotificationService,
-		@ITelemetryService private readonly telemetryService: ITelemetryService,
 	) { }
 
 	runOnce(
@@ -233,7 +230,7 @@ export class AutomationRunner implements IAutomationRunner {
 				throw new Error(localize('automationRunner.sessionFailed', "Agent session failed."));
 			}
 
-			await this.completeRun(run, automation, 'success');
+			await this.completeRun(run, 'success');
 		} catch (err) {
 			if (run && token.isCancellationRequested) {
 				await dispatched.complete({ kind: 'notStarted', reason: 'cancelled' });
@@ -246,7 +243,7 @@ export class AutomationRunner implements IAutomationRunner {
 				this.notificationService.error(localize('automationRunFailed', "Automation '{0}' failed: {1}", automation.name, errorMessage));
 				let failedRun: IAutomationRun | undefined;
 				if (run) {
-					failedRun = await this.completeRun(run, automation, 'error', errorMessage);
+					failedRun = await this.completeRun(run, 'error', errorMessage);
 				}
 				// No-op when the session was already dispatched and failed later in its lifecycle.
 				await dispatched.complete({ kind: 'notStarted', reason: 'error', run: failedRun });
@@ -256,31 +253,22 @@ export class AutomationRunner implements IAutomationRunner {
 		}
 	}
 
-	private async completeRun(run: IAutomationRun, automation: IAutomationDescriptor, outcome: AutomationRunOutcome, errorMessage?: string): Promise<IAutomationRun | undefined> {
+	private async completeRun(run: IAutomationRun, outcome: AutomationRunOutcome, errorMessage?: string): Promise<IAutomationRun | undefined> {
 		if (run.status === 'completed' || run.status === 'failed') {
 			return run;
 		}
-		const completedAt = new Date().toISOString();
-		const updated = await this.automationService.updateRun(run.id, {
+		return this.automationService.updateRun(run.id, {
 			status: outcome === 'success' ? 'completed' : 'failed',
-			completedAt,
+			completedAt: new Date().toISOString(),
 			errorMessage,
 			outcome,
 		});
-		if (!updated) {
-			logAutomationRunCompleted(this.telemetryService, {
-				...getBrowserAutomationRunTelemetry(run, automation),
-				outcome,
-				durationMs: Date.parse(completedAt) - Date.parse(run.startedAt),
-			});
-		}
-		return updated;
 	}
 
 	private async markCancelled(run: IAutomationRun, automation: IAutomationDescriptor): Promise<void> {
 		try {
 			if (this.automationService.getActiveRunFor(automation.id)?.id === run.id || !this.automationService.getAutomation(automation.id)) {
-				await this.completeRun(run, automation, 'cancelled', localize('automationRunner.cancelled', "Cancelled"));
+				await this.completeRun(run, 'cancelled', localize('automationRunner.cancelled', "Cancelled"));
 			}
 		} catch (err) {
 			this.logService.error(`[AutomationRunner] error recording cancellation for ${automation.id}`, err);

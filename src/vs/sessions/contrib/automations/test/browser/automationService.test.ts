@@ -119,7 +119,7 @@ suite('AutomationService', () => {
 		const updated = await service.updateAutomation(automation.id, { prompt: 'Review changes' });
 		const run = await claimRun(service, automation.id, 'manual');
 		await service.updateRun(run.id, { status: 'running' });
-		const linked = await service.updateRun(run.id, { sessionResource: URI.parse('test:///session') });
+		const linked = await service.updateRun(run.id, { sessionResource: URI.parse('copilotcli:/session') });
 		assert.ok(linked);
 		const completed = await service.updateRun(run.id, {
 			status: 'completed',
@@ -135,14 +135,15 @@ suite('AutomationService', () => {
 			automationId: event.data.automationId,
 			runId: event.data.runId,
 			authority: event.data.executionAuthority,
+			provider: event.data.provider,
 			outcome: event.data.outcome,
 		})), [
-			{ name: 'automation.created', automationId: hashAutomationTelemetryId(automation.id), runId: undefined, authority: 'browser', outcome: undefined },
-			{ name: 'automation.updated', automationId: hashAutomationTelemetryId(automation.id), runId: undefined, authority: 'browser', outcome: undefined },
-			{ name: 'automation.runCreated', automationId: hashAutomationTelemetryId(automation.id), runId: hashAutomationTelemetryId(run.id), authority: 'browser', outcome: undefined },
-			{ name: 'automation.runStarted', automationId: hashAutomationTelemetryId(automation.id), runId: hashAutomationTelemetryId(run.id), authority: 'browser', outcome: undefined },
-			{ name: 'automation.runCompleted', automationId: hashAutomationTelemetryId(automation.id), runId: hashAutomationTelemetryId(run.id), authority: 'browser', outcome: 'success' },
-			{ name: 'automation.deleted', automationId: hashAutomationTelemetryId(automation.id), runId: undefined, authority: 'browser', outcome: undefined },
+			{ name: 'automation.created', automationId: hashAutomationTelemetryId(automation.id), runId: undefined, authority: 'browser', provider: 'default', outcome: undefined },
+			{ name: 'automation.updated', automationId: hashAutomationTelemetryId(automation.id), runId: undefined, authority: 'browser', provider: 'default', outcome: undefined },
+			{ name: 'automation.runCreated', automationId: hashAutomationTelemetryId(automation.id), runId: hashAutomationTelemetryId(run.id), authority: 'browser', provider: 'default', outcome: undefined },
+			{ name: 'automation.runStarted', automationId: hashAutomationTelemetryId(automation.id), runId: hashAutomationTelemetryId(run.id), authority: 'browser', provider: 'copilotcli', outcome: undefined },
+			{ name: 'automation.runCompleted', automationId: hashAutomationTelemetryId(automation.id), runId: hashAutomationTelemetryId(run.id), authority: 'browser', provider: 'copilotcli', outcome: 'success' },
+			{ name: 'automation.deleted', automationId: hashAutomationTelemetryId(automation.id), runId: undefined, authority: 'browser', provider: 'default', outcome: undefined },
 		]);
 	});
 
